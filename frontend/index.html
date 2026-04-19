@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EssayMatch — Scholarship Finder</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f7f5f0;
+    --surface: #ffffff;
+    --border: #e2ddd6;
+    --text: #1a1916;
+    --muted: #6b6860;
+    --accent: #2a5f4a;
+    --accent-light: #e8f2ee;
+    --accent-muted: #4a8c72;
+    --danger: #c0392b;
+    --radius: 12px;
+    --radius-sm: 8px;
+  }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  header {
+    padding: 1.5rem 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .logo {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.4rem;
+    color: var(--accent);
+    letter-spacing: -0.02em;
+  }
+
+  .logo span { color: var(--text); }
+
+  .step-indicator {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .step-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--border);
+    transition: background 0.3s;
+  }
+
+  .step-dot.active { background: var(--accent); }
+  .step-dot.done { background: var(--accent-muted); }
+
+  .container {
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 3rem 1.5rem;
+  }
+
+  .screen { display: none; }
+  .screen.active { display: block; }
+
+  h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 2.4rem;
+    line-height: 1.15;
+    letter-spacing: -0.03em;
+    margin-bottom: 0.75rem;
+    font-weight: 400;
+  }
+
+  h1 em {
+    font-style: italic;
+    color: var(--accent);
+  }
+
+  .subtitle {
+    color: var(--muted);
+    font-size: 15px;
+    margin-bottom: 2.5rem;
+    max-width: 480px;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.75rem;
+    margin-bottom: 1rem;
+  }
+
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 0.5rem;
+  }
+
+  input, select {
+    width: 100%;
+    padding: 0.65rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 15px;
+    color: var(--text);
+    background: var(--bg);
+    outline: none;
+    transition: border-color 0.2s;
+    appearance: none;
+  }
+
+  input:focus, select:focus { border-color: var(--accent); }
+
+  .radio-group {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .radio-btn {
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: var(--bg);
+    color: var(--text);
+    user-select: none;
+  }
+
+  .radio-btn:hover { border-color: var(--accent-muted); }
+  .radio-btn.selected {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+  }
+
+  .form-row { margin-bottom: 1.25rem; }
+  .form-row:last-child { margin-bottom: 0; }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0.75rem 1.75rem;
+    border-radius: 999px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: white;
+  }
+
+  .btn-primary:hover { background: #1e4a38; }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .btn-secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+  .upload-zone {
+    border: 1.5px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 2.5rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: var(--bg);
+  }
+
+  .upload-zone:hover, .upload-zone.dragover {
+    border-color: var(--accent);
+    background: var(--accent-light);
+  }
+
+  .upload-icon {
+    width: 40px;
+    height: 40px;
+    margin: 0 auto 1rem;
+    opacity: 0.4;
+  }
+
+  .upload-zone p { color: var(--muted); font-size: 14px; }
+  .upload-zone strong { color: var(--text); font-size: 15px; display: block; margin-bottom: 4px; }
+
+  #file-input { display: none; }
+
+  .file-info {
+    display: none;
+    align-items: center;
+    gap: 12px;
+    padding: 0.75rem 1rem;
+    background: var(--accent-light);
+    border-radius: var(--radius-sm);
+    margin-top: 1rem;
+    font-size: 14px;
+  }
+
+  .file-info.visible { display: flex; }
+  .file-info-name { font-weight: 500; flex: 1; }
+  .file-info-count { color: var(--accent); font-weight: 500; }
+
+  .loading-screen {
+    text-align: center;
+    padding: 4rem 0;
+  }
+
+  .spinner {
+    width: 40px;
+    height: 40px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 1.5rem;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .loading-steps {
+    list-style: none;
+    text-align: left;
+    max-width: 300px;
+    margin: 2rem auto 0;
+  }
+
+  .loading-step {
+    padding: 0.4rem 0;
+    font-size: 14px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .loading-step::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--border);
+    flex-shrink: 0;
+    transition: background 0.3s;
+  }
+
+  .loading-step.done::before { background: var(--accent); }
+  .loading-step.active::before { background: var(--accent-muted); animation: pulse 1s ease infinite; }
+
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  .results-header {
+    margin-bottom: 2rem;
+  }
+
+  .results-count {
+    display: inline-block;
+    background: var(--accent-light);
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 500;
+    padding: 4px 12px;
+    border-radius: 999px;
+    margin-bottom: 1rem;
+  }
+
+  .result-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 1rem;
+    overflow: hidden;
+    transition: box-shadow 0.2s;
+  }
+
+  .result-card:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+
+  .result-header {
+    padding: 1.25rem 1.5rem;
+    cursor: pointer;
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .match-score {
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: var(--accent-light);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--accent);
+    margin-top: 2px;
+  }
+
+  .result-meta { flex: 1; min-width: 0; }
+
+  .result-purpose {
+    font-size: 15px;
+    font-weight: 500;
+    margin-bottom: 4px;
+    line-height: 1.4;
+  }
+
+  .result-url {
+    font-size: 13px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .expand-icon {
+    flex-shrink: 0;
+    color: var(--muted);
+    font-size: 18px;
+    margin-top: 4px;
+    transition: transform 0.2s;
+  }
+
+  .result-card.expanded .expand-icon { transform: rotate(180deg); }
+
+  .result-body {
+    display: none;
+    padding: 0 1.5rem 1.5rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .result-card.expanded .result-body { display: block; }
+
+  .section-label {
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin: 1.25rem 0 0.5rem;
+  }
+
+  .essay-box {
+    background: var(--bg);
+    border-radius: var(--radius-sm);
+    padding: 1rem;
+    font-size: 14px;
+    line-height: 1.7;
+    max-height: 180px;
+    overflow-y: auto;
+    color: var(--text);
+  }
+
+  .essay-prompt-tag {
+    display: inline-block;
+    background: var(--accent-light);
+    color: var(--accent);
+    font-size: 12px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    margin-bottom: 0.75rem;
+    font-weight: 500;
+  }
+
+  .advice-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .advice-item {
+    display: flex;
+    gap: 10px;
+    font-size: 14px;
+    line-height: 1.6;
+    align-items: flex-start;
+  }
+
+  .advice-bullet {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--accent-light);
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .apply-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 1.25rem;
+    padding: 0.5rem 1.1rem;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: all 0.2s;
+    background: transparent;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+  }
+
+  .apply-btn:hover {
+    background: var(--accent);
+    color: white;
+  }
+
+  .error-msg {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: var(--danger);
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    margin-top: 1rem;
+    display: none;
+  }
+
+  .actions { display: flex; gap: 10px; margin-top: 2rem; align-items: center; }
+
+  .back-btn {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 14px;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    padding: 0;
+  }
+
+  .back-btn:hover { color: var(--text); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Essay<span>Match</span></div>
+  <div class="step-indicator">
+    <div class="step-dot active" id="dot-1"></div>
+    <div class="step-dot" id="dot-2"></div>
+    <div class="step-dot" id="dot-3"></div>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- Screen 1: Profile -->
+  <div class="screen active" id="screen-profile">
+    <h1>Your essays,<br><em>working harder.</em></h1>
+    <p class="subtitle">Tell us a bit about yourself so we can find scholarships you're actually eligible for.</p>
+
+    <div class="card">
+      <div class="form-row">
+        <label>Are you a US citizen?</label>
+        <div class="radio-group" id="citizen-group">
+          <div class="radio-btn selected" data-value="true">Yes</div>
+          <div class="radio-btn" data-value="false">No</div>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>Level of study</label>
+        <div class="radio-group" id="level-group">
+          <div class="radio-btn selected" data-value="undergraduate">Undergraduate</div>
+          <div class="radio-btn" data-value="graduate">Graduate</div>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>State of residence</label>
+        <input type="text" id="state-input" placeholder="e.g. California" />
+      </div>
+
+      <div class="form-row">
+        <label>Intended major</label>
+        <input type="text" id="major-input" placeholder="e.g. Neuroscience" />
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-primary" id="profile-next">Continue →</button>
+    </div>
+  </div>
+
+  <!-- Screen 2: Upload -->
+  <div class="screen" id="screen-upload">
+    <h1>Upload your<br><em>essays.</em></h1>
+    <p class="subtitle">Upload a CSV with your college essays. It needs columns named <strong>Prompt</strong> and <strong>Response</strong>.</p>
+
+    <div class="upload-zone" id="upload-zone">
+      <svg class="upload-icon" viewBox="0 0 40 40" fill="none">
+        <path d="M20 28V12M20 12L14 18M20 12L26 18" stroke="#1a1916" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M8 30h24" stroke="#1a1916" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <strong>Drop your CSV here</strong>
+      <p>or click to browse</p>
+      <input type="file" id="file-input" accept=".csv" />
+    </div>
+
+    <div class="file-info" id="file-info">
+      <span>📄</span>
+      <span class="file-info-name" id="file-name"></span>
+      <span class="file-info-count" id="essay-count"></span>
+    </div>
+
+    <div class="error-msg" id="upload-error"></div>
+
+    <div class="actions">
+      <button class="btn btn-primary" id="upload-next" disabled>Find my scholarships →</button>
+      <button class="back-btn" id="upload-back">← Back</button>
+    </div>
+  </div>
+
+  <!-- Screen 3: Loading -->
+  <div class="screen" id="screen-loading">
+    <div class="loading-screen">
+      <div class="spinner"></div>
+      <h1 style="font-size: 1.8rem;">Finding your<br><em>best matches...</em></h1>
+      <p class="subtitle" style="margin: 0.75rem auto 0; text-align: center;">This takes about 60 seconds. We're analyzing thousands of scholarships against your essays.</p>
+      <ul class="loading-steps">
+        <li class="loading-step active" id="step-embed">Embedding your essays</li>
+        <li class="loading-step" id="step-match">Matching to 10,000+ scholarships</li>
+        <li class="loading-step" id="step-advice">Generating adaptation advice</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Screen 4: Results -->
+  <div class="screen" id="screen-results">
+    <div class="results-header">
+      <h1>Your<br><em>matches.</em></h1>
+      <p class="subtitle">We found scholarships your essays can win. Click any to see which essay to use and what to change.</p>
+      <div class="results-count" id="results-count"></div>
+    </div>
+    <div id="results-list"></div>
+    <div class="actions" style="margin-top: 2.5rem;">
+      <button class="btn btn-secondary" id="start-over">Start over</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API = 'http://127.0.0.1:5000';
+
+let profile = { us_citizen: true, level: 'undergraduate', state: '', major: '' };
+let essays = [];
+let csvFile = null;
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  const screens = ['screen-profile', 'screen-upload', 'screen-loading', 'screen-results'];
+  const idx = screens.indexOf(id);
+  document.querySelectorAll('.step-dot').forEach((dot, i) => {
+    dot.classList.remove('active', 'done');
+    if (i < idx) dot.classList.add('done');
+    else if (i === idx) dot.classList.add('active');
+  });
+}
+
+function setupRadioGroup(groupId, key) {
+  const group = document.getElementById(groupId);
+  group.querySelectorAll('.radio-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      group.querySelectorAll('.radio-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      profile[key] = btn.dataset.value === 'true' ? true : btn.dataset.value === 'false' ? false : btn.dataset.value;
+    });
+  });
+}
+
+setupRadioGroup('citizen-group', 'us_citizen');
+setupRadioGroup('level-group', 'level');
+
+document.getElementById('profile-next').addEventListener('click', () => {
+  profile.state = document.getElementById('state-input').value.trim();
+  profile.major = document.getElementById('major-input').value.trim();
+  if (!profile.state || !profile.major) {
+    alert('Please fill in your state and major.');
+    return;
+  }
+  showScreen('screen-upload');
+});
+
+document.getElementById('upload-back').addEventListener('click', () => showScreen('screen-profile'));
+
+const uploadZone = document.getElementById('upload-zone');
+const fileInput = document.getElementById('file-input');
+
+uploadZone.addEventListener('click', () => fileInput.click());
+
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file) handleFile(file);
+});
+
+fileInput.addEventListener('change', e => {
+  if (e.target.files[0]) handleFile(e.target.files[0]);
+});
+
+function handleFile(file) {
+  csvFile = file;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = e.target.result;
+    const parsed = parseCSV(text);
+    const errEl = document.getElementById('upload-error');
+
+    if (!parsed.length || !parsed[0].hasOwnProperty('Prompt') || !parsed[0].hasOwnProperty('Response')) {
+      errEl.textContent = 'CSV must have "Prompt" and "Response" columns.';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    errEl.style.display = 'none';
+    essays = parsed.filter(r => r.Prompt && r.Response && r.Prompt !== 'Unknown / Common App');
+
+    document.getElementById('file-name').textContent = file.name;
+    document.getElementById('essay-count').textContent = `${essays.length} essays found`;
+    document.getElementById('file-info').classList.add('visible');
+    document.getElementById('upload-next').disabled = false;
+  };
+  reader.readAsText(file);
+}
+
+function parseCSV(text) {
+  const lines = text.trim().split('\n');
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+  return lines.slice(1).map(line => {
+    const values = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      if (line[i] === '"') { inQuotes = !inQuotes; }
+      else if (line[i] === ',' && !inQuotes) { values.push(current); current = ''; }
+      else { current += line[i]; }
+    }
+    values.push(current);
+    const obj = {};
+    headers.forEach((h, i) => obj[h] = (values[i] || '').trim());
+    return obj;
+  });
+}
+
+document.getElementById('upload-next').addEventListener('click', async () => {
+  showScreen('screen-loading');
+  await runPipeline();
+});
+
+async function runPipeline() {
+  const steps = {
+    embed: document.getElementById('step-embed'),
+    match: document.getElementById('step-match'),
+    advice: document.getElementById('step-advice'),
+  };
+
+  steps.embed.classList.add('active');
+
+  setTimeout(() => {
+    steps.embed.classList.remove('active');
+    steps.embed.classList.add('done');
+    steps.match.classList.add('active');
+  }, 8000);
+
+  setTimeout(() => {
+    steps.match.classList.remove('active');
+    steps.match.classList.add('done');
+    steps.advice.classList.add('active');
+  }, 30000);
+
+  try {
+    const response = await fetch(`${API}/match`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        profile,
+        essays: essays.map(e => ({ prompt: e.Prompt, response: e.Response }))
+      })
+    });
+
+    if (!response.ok) throw new Error('Server error');
+
+    const results = await response.json();
+    steps.advice.classList.remove('active');
+    steps.advice.classList.add('done');
+    renderResults(results);
+    showScreen('screen-results');
+  } catch (err) {
+    alert('Something went wrong. Make sure your backend is running on port 5000.');
+    showScreen('screen-upload');
+  }
+}
+
+function renderResults(results) {
+  const list = document.getElementById('results-list');
+  document.getElementById('results-count').textContent = `${results.length} scholarships matched`;
+  list.innerHTML = '';
+
+  results.forEach((r, i) => {
+    const score = Math.round(r.match_score * 100);
+    const adviceLines = parseAdvice(r.adaptation_advice);
+    const card = document.createElement('div');
+    card.className = 'result-card';
+    card.innerHTML = `
+      <div class="result-header">
+        <div class="match-score">${score}%</div>
+        <div class="result-meta">
+          <div class="result-purpose">${r.scholarship_purpose || 'Scholarship opportunity'}</div>
+          <div class="result-url">${r.scholarship_url}</div>
+        </div>
+        <div class="expand-icon">↓</div>
+      </div>
+      <div class="result-body">
+        <div class="section-label">Best essay to use</div>
+        <div class="essay-prompt-tag">${truncate(r.best_essay_prompt, 80)}</div>
+        <div class="essay-box">${r.best_essay_response || ''}</div>
+
+        <div class="section-label">What to change</div>
+        <ul class="advice-list">
+          ${adviceLines.map((line, j) => `
+            <li class="advice-item">
+              <div class="advice-bullet">${j + 1}</div>
+              <span>${line}</span>
+            </li>
+          `).join('')}
+        </ul>
+
+        <a class="apply-btn" href="${r.scholarship_url}" target="_blank">View scholarship →</a>
+      </div>
+    `;
+
+    card.querySelector('.result-header').addEventListener('click', () => {
+      card.classList.toggle('expanded');
+    });
+
+    list.appendChild(card);
+  });
+}
+
+function parseAdvice(text) {
+  if (!text) return ['Review the scholarship requirements and tailor your essay accordingly.'];
+  const lines = text.split('\n').filter(l => l.trim());
+  const cleaned = lines
+    .map(l => l.replace(/^[\d\.\-\*\•]+\s*/, '').replace(/\*\*/g, '').trim())
+    .filter(l => l.length > 10);
+  return cleaned.slice(0, 3);
+}
+
+function truncate(str, n) {
+  if (!str) return '';
+  return str.length > n ? str.slice(0, n) + '...' : str;
+}
+
+document.getElementById('start-over').addEventListener('click', () => {
+  essays = [];
+  csvFile = null;
+  document.getElementById('file-info').classList.remove('visible');
+  document.getElementById('upload-next').disabled = true;
+  document.getElementById('results-list').innerHTML = '';
+  showScreen('screen-profile');
+});
+</script>
+
+</body>
+</html>
