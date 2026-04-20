@@ -1,2 +1,0 @@
-scholarship_embeddings.json filter=lfs diff=lfs merge=lfs -text
-scholarships_parsed.csv filter=lfs diff=lfs merge=lfs -text
