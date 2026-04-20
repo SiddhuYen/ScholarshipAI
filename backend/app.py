@@ -6,45 +6,141 @@ import pandas as pd
 import numpy as np
 import json
 import os
+import boto3
 
 load_dotenv()
+
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 app = Flask(__name__)
 CORS(app)
 
+DATA_DIR = "data"
+os.makedirs(DATA_DIR, exist_ok=True)
+
+SCHOLARSHIP_CSV = os.path.join(DATA_DIR, "scholarships_parsed.csv")
+SCHOLARSHIP_EMB_NPY = os.path.join(DATA_DIR, "scholarship_embeddings.npy")
+ESSAY_CSV = "essay_table_clean.csv"
+ESSAY_TREE = "essay_tree.json"
+
+
+def file_exists_and_nonempty(path):
+    return os.path.exists(path) and os.path.getsize(path) > 0
+
+
+def download_from_r2_if_needed():
+    remote_to_local = {
+        "scholarships_parsed.csv": SCHOLARSHIP_CSV,
+        "scholarship_embeddings.npy": SCHOLARSHIP_EMB_NPY,
+    }
+
+    missing = [local for local in remote_to_local.values() if not file_exists_and_nonempty(local)]
+    if not missing:
+        return
+
+    account_id = os.getenv("R2_ACCOUNT_ID")
+    access_key = os.getenv("R2_ACCESS_KEY_ID")
+    secret_key = os.getenv("R2_SECRET_ACCESS_KEY")
+    bucket = os.getenv("R2_BUCKET")
+
+    if not all([account_id, access_key, secret_key, bucket]):
+        raise RuntimeError(
+            "Missing R2 environment variables. Required: "
+            "R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET"
+        )
+
+    endpoint_url = f"https://{account_id}.r2.cloudflarestorage.com"
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=endpoint_url,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        region_name="auto",
+    )
+
+    for remote_name, local_path in remote_to_local.items():
+        if not file_exists_and_nonempty(local_path):
+            print(f"Downloading {remote_name} from R2...")
+            s3.download_file(bucket, remote_name, local_path)
+            print(f"Downloaded {remote_name} -> {local_path}")
+
+
+def ensure_required_local_files():
+    required = [SCHOLARSHIP_CSV, SCHOLARSHIP_EMB_NPY, ESSAY_CSV, ESSAY_TREE]
+    missing = [path for path in required if not file_exists_and_nonempty(path)]
+    if missing:
+        raise FileNotFoundError(f"Missing required files: {missing}")
+
+
+def normalize_rows(matrix):
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    norms[norms == 0] = 1
+    return matrix / norms
+
+
+def normalize_vector(vec):
+    norm = np.linalg.norm(vec)
+    if norm == 0:
+        return vec
+    return vec / norm
+
+
+# Try to download large files first, then verify everything exists
+download_from_r2_if_needed()
+ensure_required_local_files()
+
 # Load everything once at startup
-scholarship_df = pd.read_csv("scholarships_parsed.csv")
-essay_df = pd.read_csv("essay_table_clean.csv")
+scholarship_df = pd.read_csv(SCHOLARSHIP_CSV)
+essay_df = pd.read_csv(ESSAY_CSV)
+scholarship_embeddings = np.load(SCHOLARSHIP_EMB_NPY)
 
-with open("scholarship_embeddings.json", "r") as f:
-    scholarship_embeddings = json.load(f)
-
-with open("essay_tree.json", "r") as f:
+with open(ESSAY_TREE, "r") as f:
     tree = json.load(f)
+
+if len(scholarship_df) != len(scholarship_embeddings):
+    raise ValueError(
+        f"Mismatch: scholarship_df has {len(scholarship_df)} rows but "
+        f"scholarship_embeddings has {len(scholarship_embeddings)} vectors"
+    )
+
+# Normalize once for fast cosine similarity via dot product
+scholarship_embeddings = normalize_rows(scholarship_embeddings)
+
 
 def embed(text):
     response = client.embeddings.create(
         model="text-embedding-3-small",
         input=str(text)[:8000]
     )
-    return response.data[0].embedding
+    return np.array(response.data[0].embedding, dtype=np.float32)
+
 
 def cosine_similarity(a, b):
-    a = np.array(a)
-    b = np.array(b)
-    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+    a = np.array(a, dtype=np.float32)
+    b = np.array(b, dtype=np.float32)
+
+    a_norm = np.linalg.norm(a)
+    b_norm = np.linalg.norm(b)
+
+    if a_norm == 0 or b_norm == 0:
+        return 0.0
+
+    return float(np.dot(a, b) / (a_norm * b_norm))
+
 
 def match_prompt(prompt, node):
     if not node["children"]:
         return node["essays"]
-    
+
     options = ""
     for i, child in enumerate(node["children"]):
         sample_indices = child["essays"][:2]
-        samples = " | ".join([str(essay_df.loc[j, "Prompt"])[:100] for j in sample_indices])
+        samples = " | ".join(
+            [str(essay_df.loc[j, "Prompt"])[:100] for j in sample_indices if j < len(essay_df)]
+        )
         options += f"{i}: {child['name']} (e.g. {samples})\n\n"
-    
+
     response = client.chat.completions.create(
         model="gpt-4o",
         max_tokens=100,
@@ -53,7 +149,7 @@ def match_prompt(prompt, node):
                 "role": "system",
                 "content": """You are a precise classifier. Return only a JSON object with a single key 'choice'.
 Always pick the closest matching cluster even if the match isn't perfect.
-Only return -1 if the prompt is completely unrelated to all clusters (e.g. ministry, music therapy, environmental activism).
+Only return -1 if the prompt is completely unrelated to all clusters.
 When in doubt, pick the closest cluster."""
             },
             {
@@ -71,16 +167,20 @@ Return only: {{"choice": <number or -1>}}"""
             }
         ]
     )
-    
+
     raw = response.choices[0].message.content.strip()
     raw = raw.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
     result = json.loads(raw)
     choice = result["choice"]
-    
+
     if choice == -1:
         return []
-    
+
+    if not isinstance(choice, int) or choice < 0 or choice >= len(node["children"]):
+        return []
+
     return match_prompt(prompt, node["children"][choice])
+
 
 def generate_adaptation_advice(scholarship_purpose, essay_prompt, essay_response):
     response = client.chat.completions.create(
@@ -99,69 +199,81 @@ In 3 bullet points, tell them specifically what to change to make this essay fit
     )
     return response.choices[0].message.content
 
+
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({
+        "ok": True,
+        "scholarships_loaded": len(scholarship_df),
+        "embeddings_shape": list(scholarship_embeddings.shape),
+        "essay_rows": len(essay_df)
+    })
+
+
 @app.route("/match", methods=["POST"])
 def match():
-    data = request.json
-    user_profile = data["profile"]
-    user_essays = data["essays"]  # list of {prompt, response} dicts
+    data = request.get_json(silent=True) or {}
+
+    user_profile = data.get("profile", "")
+    user_essays = data.get("essays", [])
+
+    if not isinstance(user_essays, list) or len(user_essays) == 0:
+        return jsonify({"error": "Request must include a non-empty 'essays' list."}), 400
 
     # Embed user essays
     essay_embeddings = {}
     for i, essay in enumerate(user_essays):
-        text = essay["prompt"] + " " + essay["response"]
-        essay_embeddings[i] = embed(text)
+        prompt = str(essay.get("prompt", ""))
+        response_text = str(essay.get("response", ""))
+        text = f"{user_profile}\n{prompt}\n{response_text}".strip()
+        essay_embeddings[i] = normalize_vector(embed(text))
 
-    # Average all essay embeddings as user profile vector
-    user_vecs = list(essay_embeddings.values())
-    user_profile_vec = np.mean(user_vecs, axis=0)
+    user_vecs = np.array(list(essay_embeddings.values()), dtype=np.float32)
+    user_profile_vec = normalize_vector(np.mean(user_vecs, axis=0))
 
-    # Find top scholarships via cosine similarity
-    scores = []
-    for idx, emb in scholarship_embeddings.items():
-        score = cosine_similarity(user_profile_vec, emb)
-        scores.append((int(idx), score))
-    scores.sort(key=lambda x: x[1], reverse=True)
-    top_50 = scores[:50]
+    # Fast cosine similarity because both sides are normalized
+    scores_array = scholarship_embeddings @ user_profile_vec
+    top_indices = np.argsort(scores_array)[::-1][:50]
 
-    # Match essays to each scholarship
     results = []
-    for idx, score in top_50:
+    for idx in top_indices:
+        score = float(scores_array[idx])
         row = scholarship_df.iloc[idx]
-        scholarship_text = f"{row['Purpose']} {row['Criteria']}"
+        scholarship_text = f"{row.get('Purpose', '')} {row.get('Criteria', '')}".strip()
 
         matched_essay_indices = match_prompt(scholarship_text, tree)
         if not matched_essay_indices:
             continue
 
-        scholarship_emb = scholarship_embeddings.get(str(idx))
-        if not scholarship_emb:
+        valid_matches = [i for i in matched_essay_indices if i in essay_embeddings]
+        if not valid_matches:
             continue
 
+        scholarship_emb = scholarship_embeddings[idx]
+
         best_essay_idx = max(
-            matched_essay_indices,
-            key=lambda i: cosine_similarity(
-                essay_embeddings[i],
-                scholarship_emb
-            ) if i in essay_embeddings else 0
+            valid_matches,
+            key=lambda i: float(np.dot(essay_embeddings[i], scholarship_emb))
         )
 
         best_essay = user_essays[best_essay_idx]
         advice = generate_adaptation_advice(
-            row["Purpose"],
-            best_essay["prompt"],
-            best_essay["response"]
+            str(row.get("Purpose", "")),
+            str(best_essay.get("prompt", "")),
+            str(best_essay.get("response", ""))
         )
 
         results.append({
-            "scholarship_url": row["url"],
-            "scholarship_purpose": row["Purpose"],
+            "scholarship_url": row.get("url", ""),
+            "scholarship_purpose": row.get("Purpose", ""),
             "match_score": round(score, 3),
-            "best_essay_prompt": best_essay["prompt"],
-            "best_essay_response": best_essay["response"],
+            "best_essay_prompt": best_essay.get("prompt", ""),
+            "best_essay_response": best_essay.get("response", ""),
             "adaptation_advice": advice
         })
 
     return jsonify(results)
+
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)

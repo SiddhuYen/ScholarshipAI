@@ -1,0 +1,9 @@
+venv/
+.venv/
+__pycache__/
+*.db
+.env
+data/
+*.npy
+scholarship_embeddings.json
+scholarships_parsed.csv
