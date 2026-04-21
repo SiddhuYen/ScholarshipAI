@@ -280,26 +280,19 @@ def match():
     for idx in top_indices:
         score = float(scores_array[idx])
         row = scholarship_df.iloc[idx]
-        scholarship_text = f"{row.get('Purpose', '')} {row.get('Criteria', '')}".strip()
-
-        matched_essay_indices = match_prompt(scholarship_text, tree)
-        if not matched_essay_indices:
-            continue
-
-        valid_matches = [i for i in matched_essay_indices if i in essay_embeddings]
-        if not valid_matches:
-            continue
-
         scholarship_emb = scholarship_embeddings[idx]
 
+        if not essay_embeddings:
+            continue
+
         best_essay_idx = max(
-            valid_matches,
+            essay_embeddings.keys(),
             key=lambda i: float(np.dot(essay_embeddings[i], scholarship_emb))
         )
 
         if best_essay_idx >= len(user_essays):
             continue
-
+        
         best_essay = user_essays[best_essay_idx]
 
         advice = ""
