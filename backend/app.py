@@ -23,9 +23,17 @@ SCHOLARSHIP_EMB_NPY = os.path.join(DATA_DIR, "scholarship_embeddings.npy")
 ESSAY_CSV = "essay_table_clean.csv"
 ESSAY_TREE = "essay_tree.json"
 
+MIN_ESSAY_WORDS = 150
+ADVICE_LIMIT = 5
+TOP_K = 50
+
 
 def file_exists_and_nonempty(path):
     return os.path.exists(path) and os.path.getsize(path) > 0
+
+
+def word_count(text):
+    return len(str(text).split())
 
 
 def download_from_r2_if_needed():
@@ -86,11 +94,9 @@ def normalize_vector(vec):
     return vec / norm
 
 
-# Try to download large files first, then verify everything exists
 download_from_r2_if_needed()
 ensure_required_local_files()
 
-# Load everything once at startup
 scholarship_df = pd.read_csv(SCHOLARSHIP_CSV)
 essay_df = pd.read_csv(ESSAY_CSV)
 scholarship_embeddings = np.load(SCHOLARSHIP_EMB_NPY)
@@ -104,7 +110,6 @@ if len(scholarship_df) != len(scholarship_embeddings):
         f"scholarship_embeddings has {len(scholarship_embeddings)} vectors"
     )
 
-# Normalize once for fast cosine similarity via dot product
 scholarship_embeddings = normalize_rows(scholarship_embeddings)
 
 
@@ -226,17 +231,34 @@ def health():
 def match():
     data = request.get_json(silent=True) or {}
 
-    user_profile = data.get("profile", "")
+    user_profile = data.get("profile", {})
     user_essays = data.get("essays", [])
 
     if not isinstance(user_essays, list) or len(user_essays) == 0:
         return jsonify({"error": "Request must include a non-empty 'essays' list."}), 400
 
-    # Embed user essays
+    filtered_essays = []
+    for essay in user_essays:
+        prompt = str(essay.get("prompt", "")).strip()
+        response_text = str(essay.get("response", "")).strip()
+
+        if prompt and response_text and word_count(response_text) >= MIN_ESSAY_WORDS:
+            filtered_essays.append({
+                "prompt": prompt,
+                "response": response_text
+            })
+
+    if len(filtered_essays) == 0:
+        return jsonify({
+            "error": f"No essays were at least {MIN_ESSAY_WORDS} words long."
+        }), 400
+
+    user_essays = filtered_essays
+
     essay_texts = []
     for essay in user_essays:
-        prompt = str(essay.get("prompt", ""))
-        response_text = str(essay.get("response", ""))
+        prompt = essay["prompt"]
+        response_text = essay["response"]
         text = f"{user_profile}\n{prompt}\n{response_text}".strip()
         essay_texts.append(text)
 
@@ -250,12 +272,10 @@ def match():
     user_vecs = np.array(list(essay_embeddings.values()), dtype=np.float32)
     user_profile_vec = normalize_vector(np.mean(user_vecs, axis=0))
 
-    # Fast cosine similarity because both sides are normalized
     scores_array = scholarship_embeddings @ user_profile_vec
-    top_indices = np.argsort(scores_array)[::-1][:50]
+    top_indices = np.argsort(scores_array)[::-1][:TOP_K]
 
     results = []
-    advice_limit = 5
 
     for idx in top_indices:
         score = float(scores_array[idx])
@@ -283,7 +303,7 @@ def match():
         best_essay = user_essays[best_essay_idx]
 
         advice = ""
-        if len(results) < advice_limit:
+        if len(results) < ADVICE_LIMIT:
             advice = generate_adaptation_advice(
                 str(row.get("Purpose", "")),
                 str(best_essay.get("prompt", "")),
@@ -303,4 +323,5 @@ def match():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
