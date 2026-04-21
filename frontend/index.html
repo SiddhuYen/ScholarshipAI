@@ -457,6 +457,8 @@
     font-size: 14px;
     margin-top: 1rem;
     display: none;
+    white-space: pre-wrap;
+    word-break: break-word;
   }
 
   .actions { display: flex; gap: 10px; margin-top: 2rem; align-items: center; }
@@ -487,7 +489,6 @@
 
 <div class="container">
 
-  <!-- Screen 1: Profile -->
   <div class="screen active" id="screen-profile">
     <h1>Your essays,<br><em>working harder.</em></h1>
     <p class="subtitle">Tell us a bit about yourself so we can find scholarships you're actually eligible for.</p>
@@ -525,7 +526,6 @@
     </div>
   </div>
 
-  <!-- Screen 2: Upload -->
   <div class="screen" id="screen-upload">
     <h1>Upload your<br><em>essays.</em></h1>
     <p class="subtitle">Upload a CSV with your college essays. It needs columns named <strong>Prompt</strong> and <strong>Response</strong>.</p>
@@ -554,21 +554,20 @@
     </div>
   </div>
 
-  <!-- Screen 3: Loading -->
   <div class="screen" id="screen-loading">
     <div class="loading-screen">
       <div class="spinner"></div>
       <h1 style="font-size: 1.8rem;">Finding your<br><em>best matches...</em></h1>
-      <p class="subtitle" style="margin: 0.75rem auto 0; text-align: center;">This takes about 60 seconds. We're analyzing thousands of scholarships against your essays.</p>
+      <p class="subtitle" style="margin: 0.75rem auto 0; text-align: center;">We’re analyzing your essays against a large scholarship set.</p>
       <ul class="loading-steps">
         <li class="loading-step active" id="step-embed">Embedding your essays</li>
-        <li class="loading-step" id="step-match">Matching to 10,000+ scholarships</li>
+        <li class="loading-step" id="step-match">Matching scholarships</li>
         <li class="loading-step" id="step-advice">Generating adaptation advice</li>
       </ul>
+      <div class="error-msg" id="loading-error"></div>
     </div>
   </div>
 
-  <!-- Screen 4: Results -->
   <div class="screen" id="screen-results">
     <div class="results-header">
       <h1>Your<br><em>matches.</em></h1>
@@ -584,7 +583,10 @@
 </div>
 
 <script>
-const API = 'https://scholarshipai-9nd4.onrender.com';
+const API =
+  window.location.hostname === 'localhost'
+    ? 'http://localhost:5000'
+    : 'https://scholarshipai-9nd4.onrender.com';
 
 let profile = { us_citizen: true, level: 'undergraduate', state: '', major: '' };
 let essays = [];
@@ -608,9 +610,42 @@ function setupRadioGroup(groupId, key) {
     btn.addEventListener('click', () => {
       group.querySelectorAll('.radio-btn').forEach(b => b.classList.remove('selected'));
       btn.classList.add('selected');
-      profile[key] = btn.dataset.value === 'true' ? true : btn.dataset.value === 'false' ? false : btn.dataset.value;
+      profile[key] =
+        btn.dataset.value === 'true'
+          ? true
+          : btn.dataset.value === 'false'
+          ? false
+          : btn.dataset.value;
     });
   });
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function formatTextWithBreaks(str) {
+  return escapeHtml(str).replaceAll('\n', '<br>');
+}
+
+function safeUrl(url) {
+  const s = String(url || '').trim();
+  return s.startsWith('http://') || s.startsWith('https://') ? s : '#';
+}
+
+function showError(el, message) {
+  el.textContent = message;
+  el.style.display = 'block';
+}
+
+function hideError(el) {
+  el.textContent = '';
+  el.style.display = 'none';
 }
 
 setupRadioGroup('citizen-group', 'us_citizen');
@@ -633,8 +668,13 @@ const fileInput = document.getElementById('file-input');
 
 uploadZone.addEventListener('click', () => fileInput.click());
 
-uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+uploadZone.addEventListener('dragover', e => {
+  e.preventDefault();
+  uploadZone.classList.add('dragover');
+});
+
 uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+
 uploadZone.addEventListener('drop', e => {
   e.preventDefault();
   uploadZone.classList.remove('dragover');
@@ -655,33 +695,38 @@ function handleFile(file) {
     const errEl = document.getElementById('upload-error');
 
     if (!parsed.length || !parsed[0].hasOwnProperty('Prompt') || !parsed[0].hasOwnProperty('Response')) {
-      errEl.textContent = 'CSV must have "Prompt" and "Response" columns.';
-      errEl.style.display = 'block';
+      showError(errEl, 'CSV must have "Prompt" and "Response" columns.');
       return;
     }
 
-    errEl.style.display = 'none';
+    hideError(errEl);
     essays = parsed.filter(r => r.Prompt && r.Response && r.Prompt !== 'Unknown / Common App');
 
     document.getElementById('file-name').textContent = file.name;
     document.getElementById('essay-count').textContent = `${essays.length} essays found`;
     document.getElementById('file-info').classList.add('visible');
-    document.getElementById('upload-next').disabled = false;
+    document.getElementById('upload-next').disabled = essays.length === 0;
   };
   reader.readAsText(file);
 }
 
 function parseCSV(text) {
   const lines = text.trim().split('\n');
+  if (!lines.length) return [];
   const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
   return lines.slice(1).map(line => {
     const values = [];
     let current = '';
     let inQuotes = false;
     for (let i = 0; i < line.length; i++) {
-      if (line[i] === '"') { inQuotes = !inQuotes; }
-      else if (line[i] === ',' && !inQuotes) { values.push(current); current = ''; }
-      else { current += line[i]; }
+      if (line[i] === '"') {
+        inQuotes = !inQuotes;
+      } else if (line[i] === ',' && !inQuotes) {
+        values.push(current);
+        current = '';
+      } else {
+        current += line[i];
+      }
     }
     values.push(current);
     const obj = {};
@@ -702,19 +747,23 @@ async function runPipeline() {
     advice: document.getElementById('step-advice'),
   };
 
+  const loadingError = document.getElementById('loading-error');
+  hideError(loadingError);
+
   steps.embed.classList.add('active');
 
-  setTimeout(() => {
+  const timers = [];
+  timers.push(setTimeout(() => {
     steps.embed.classList.remove('active');
     steps.embed.classList.add('done');
     steps.match.classList.add('active');
-  }, 8000);
+  }, 5000));
 
-  setTimeout(() => {
+  timers.push(setTimeout(() => {
     steps.match.classList.remove('active');
     steps.match.classList.add('done');
     steps.advice.classList.add('active');
-  }, 30000);
+  }, 15000));
 
   try {
     const response = await fetch(`${API}/match`, {
@@ -726,15 +775,37 @@ async function runPipeline() {
       })
     });
 
-    if (!response.ok) throw new Error('Server error');
+    if (!response.ok) {
+      const text = await response.text();
+      console.error('SERVER ERROR:', text);
+      let message = `Server error (${response.status}).`;
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed.error) message = parsed.error;
+      } catch (_) {
+        if (text) message = text;
+      }
+      showError(loadingError, message);
+      showScreen('screen-upload');
+      return;
+    }
 
     const results = await response.json();
+
+    timers.forEach(clearTimeout);
+    steps.embed.classList.remove('active');
+    steps.embed.classList.add('done');
+    steps.match.classList.remove('active');
+    steps.match.classList.add('done');
     steps.advice.classList.remove('active');
     steps.advice.classList.add('done');
+
     renderResults(results);
     showScreen('screen-results');
   } catch (err) {
-    alert('Something went wrong. Make sure your backend is running on port 5000.');
+    timers.forEach(clearTimeout);
+    console.error(err);
+    showError(loadingError, 'Request failed. Check console for details.');
     showScreen('screen-upload');
   }
 }
@@ -744,8 +815,8 @@ function renderResults(results) {
   document.getElementById('results-count').textContent = `${results.length} scholarships matched`;
   list.innerHTML = '';
 
-  results.forEach((r, i) => {
-    const score = Math.round(r.match_score * 100);
+  results.forEach(r => {
+    const score = Math.round((r.match_score || 0) * 100);
     const adviceLines = parseAdvice(r.adaptation_advice);
     const card = document.createElement('div');
     card.className = 'result-card';
@@ -753,27 +824,27 @@ function renderResults(results) {
       <div class="result-header">
         <div class="match-score">${score}%</div>
         <div class="result-meta">
-          <div class="result-purpose">${r.scholarship_purpose || 'Scholarship opportunity'}</div>
-          <div class="result-url">${r.scholarship_url}</div>
+          <div class="result-purpose">${escapeHtml(r.scholarship_purpose || 'Scholarship opportunity')}</div>
+          <div class="result-url">${escapeHtml(r.scholarship_url || '')}</div>
         </div>
         <div class="expand-icon">↓</div>
       </div>
       <div class="result-body">
         <div class="section-label">Best essay to use</div>
-        <div class="essay-prompt-tag">${truncate(r.best_essay_prompt, 80)}</div>
-        <div class="essay-box">${r.best_essay_response || ''}</div>
+        <div class="essay-prompt-tag">${escapeHtml(truncate(r.best_essay_prompt, 80))}</div>
+        <div class="essay-box">${formatTextWithBreaks(r.best_essay_response || '')}</div>
 
         <div class="section-label">What to change</div>
         <ul class="advice-list">
           ${adviceLines.map((line, j) => `
             <li class="advice-item">
               <div class="advice-bullet">${j + 1}</div>
-              <span>${line}</span>
+              <span>${escapeHtml(line)}</span>
             </li>
           `).join('')}
         </ul>
 
-        <a class="apply-btn" href="${r.scholarship_url}" target="_blank">View scholarship →</a>
+        <a class="apply-btn" href="${safeUrl(r.scholarship_url)}" target="_blank" rel="noopener noreferrer">View scholarship →</a>
       </div>
     `;
 
@@ -805,6 +876,9 @@ document.getElementById('start-over').addEventListener('click', () => {
   document.getElementById('file-info').classList.remove('visible');
   document.getElementById('upload-next').disabled = true;
   document.getElementById('results-list').innerHTML = '';
+  fileInput.value = '';
+  hideError(document.getElementById('upload-error'));
+  hideError(document.getElementById('loading-error'));
   showScreen('screen-profile');
 });
 </script>
