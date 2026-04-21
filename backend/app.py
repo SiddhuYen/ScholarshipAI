@@ -111,9 +111,21 @@ scholarship_embeddings = normalize_rows(scholarship_embeddings)
 def embed(text):
     response = client.embeddings.create(
         model="text-embedding-3-small",
-        input=str(text)[:8000]
+        input=[str(text)[:8000]]
     )
     return np.array(response.data[0].embedding, dtype=np.float32)
+
+
+def embed_batch(texts):
+    cleaned = [str(text)[:8000] for text in texts]
+    response = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=cleaned
+    )
+    return [
+        np.array(item.embedding, dtype=np.float32)
+        for item in response.data
+    ]
 
 
 def cosine_similarity(a, b):
@@ -221,12 +233,19 @@ def match():
         return jsonify({"error": "Request must include a non-empty 'essays' list."}), 400
 
     # Embed user essays
-    essay_embeddings = {}
-    for i, essay in enumerate(user_essays):
+    essay_texts = []
+    for essay in user_essays:
         prompt = str(essay.get("prompt", ""))
         response_text = str(essay.get("response", ""))
         text = f"{user_profile}\n{prompt}\n{response_text}".strip()
-        essay_embeddings[i] = normalize_vector(embed(text))
+        essay_texts.append(text)
+
+    batched_embeddings = embed_batch(essay_texts)
+
+    essay_embeddings = {
+        i: normalize_vector(emb)
+        for i, emb in enumerate(batched_embeddings)
+    }
 
     user_vecs = np.array(list(essay_embeddings.values()), dtype=np.float32)
     user_profile_vec = normalize_vector(np.mean(user_vecs, axis=0))
