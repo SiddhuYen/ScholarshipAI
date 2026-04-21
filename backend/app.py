@@ -104,6 +104,9 @@ scholarship_embeddings = np.load(SCHOLARSHIP_EMB_NPY)
 with open(ESSAY_TREE, "r") as f:
     tree = json.load(f)
 
+print("Embeddings shape:", scholarship_embeddings.shape)
+print("Scholarship dataframe length:", len(scholarship_df))
+
 if len(scholarship_df) != len(scholarship_embeddings):
     raise ValueError(
         f"Mismatch: scholarship_df has {len(scholarship_df)} rows but "
@@ -229,90 +232,105 @@ def health():
 
 @app.route("/match", methods=["POST"])
 def match():
-    data = request.get_json(silent=True) or {}
+    try:
+        data = request.get_json(silent=True) or {}
 
-    user_profile = data.get("profile", {})
-    user_essays = data.get("essays", [])
+        user_profile = data.get("profile", {})
+        user_essays = data.get("essays", [])
 
-    if not isinstance(user_essays, list) or len(user_essays) == 0:
-        return jsonify({"error": "Request must include a non-empty 'essays' list."}), 400
+        if not isinstance(user_essays, list) or len(user_essays) == 0:
+            return jsonify({"error": "Request must include a non-empty 'essays' list."}), 400
 
-    filtered_essays = []
-    for essay in user_essays:
-        prompt = str(essay.get("prompt", "")).strip()
-        response_text = str(essay.get("response", "")).strip()
+        filtered_essays = []
+        for essay in user_essays:
+            prompt = str(essay.get("prompt", "")).strip()
+            response_text = str(essay.get("response", "")).strip()
 
-        if prompt and response_text and word_count(response_text) >= MIN_ESSAY_WORDS:
-            filtered_essays.append({
-                "prompt": prompt,
-                "response": response_text
-            })
+            if prompt and response_text and word_count(response_text) >= MIN_ESSAY_WORDS:
+                filtered_essays.append({
+                    "prompt": prompt,
+                    "response": response_text
+                })
 
-    if len(filtered_essays) == 0:
-        return jsonify({
-            "error": f"No essays were at least {MIN_ESSAY_WORDS} words long."
-        }), 400
+        if len(filtered_essays) == 0:
+            return jsonify({
+                "error": f"No essays were at least {MIN_ESSAY_WORDS} words long."
+            }), 400
 
-    user_essays = filtered_essays
+        user_essays = filtered_essays
 
-    essay_texts = []
-    for essay in user_essays:
-        prompt = essay["prompt"]
-        response_text = essay["response"]
-        text = f"{user_profile}\n{prompt}\n{response_text}".strip()
-        essay_texts.append(text)
+        essay_texts = []
+        for essay in user_essays:
+            prompt = essay["prompt"]
+            response_text = essay["response"]
+            text = f"{user_profile}\n{prompt}\n{response_text}".strip()
+            essay_texts.append(text)
 
-    batched_embeddings = embed_batch(essay_texts)
+        batched_embeddings = embed_batch(essay_texts)
 
-    essay_embeddings = {
-        i: normalize_vector(emb)
-        for i, emb in enumerate(batched_embeddings)
-    }
-
-    user_vecs = np.array(list(essay_embeddings.values()), dtype=np.float32)
-    user_profile_vec = normalize_vector(np.mean(user_vecs, axis=0))
-
-    scores_array = scholarship_embeddings @ user_profile_vec
-    top_indices = np.argsort(scores_array)[::-1][:TOP_K]
-
-    results = []
-
-    for idx in top_indices:
-        score = float(scores_array[idx])
-        row = scholarship_df.iloc[idx]
-        scholarship_emb = scholarship_embeddings[idx]
+        essay_embeddings = {
+            i: normalize_vector(emb)
+            for i, emb in enumerate(batched_embeddings)
+        }
 
         if not essay_embeddings:
-            continue
+            return jsonify([])
 
-        best_essay_idx = max(
-            essay_embeddings.keys(),
-            key=lambda i: float(np.dot(essay_embeddings[i], scholarship_emb))
-        )
+        user_vecs = np.array(list(essay_embeddings.values()), dtype=np.float32)
+        user_profile_vec = normalize_vector(np.mean(user_vecs, axis=0))
 
-        if best_essay_idx >= len(user_essays):
-            continue
-        
-        best_essay = user_essays[best_essay_idx]
+        if scholarship_embeddings.shape[1] != len(user_profile_vec):
+            return jsonify({
+                "error": (
+                    f"Embedding dimension mismatch: "
+                    f"scholarship vectors have dim {scholarship_embeddings.shape[1]}, "
+                    f"user vector has dim {len(user_profile_vec)}"
+                )
+            }), 500
 
-        advice = ""
-        if len(results) < ADVICE_LIMIT:
-            advice = generate_adaptation_advice(
-                str(row.get("Purpose", "")),
-                str(best_essay.get("prompt", "")),
-                str(best_essay.get("response", ""))
+        scores_array = scholarship_embeddings @ user_profile_vec
+        top_indices = np.argsort(scores_array)[::-1][:TOP_K]
+
+        results = []
+
+        for idx in top_indices:
+            score = float(scores_array[idx])
+            row = scholarship_df.iloc[idx]
+            scholarship_emb = scholarship_embeddings[idx]
+
+            best_essay_idx = max(
+                essay_embeddings.keys(),
+                key=lambda i: float(np.dot(essay_embeddings[i], scholarship_emb))
+                if len(essay_embeddings[i]) == len(scholarship_emb) else -1
             )
 
-        results.append({
-            "scholarship_url": row.get("url", ""),
-            "scholarship_purpose": row.get("Purpose", ""),
-            "match_score": round(score, 3),
-            "best_essay_prompt": best_essay.get("prompt", ""),
-            "best_essay_response": best_essay.get("response", ""),
-            "adaptation_advice": advice
-        })
+            if best_essay_idx >= len(user_essays):
+                continue
 
-    return jsonify(results)
+            best_essay = user_essays[best_essay_idx]
+
+            advice = ""
+            if len(results) < ADVICE_LIMIT:
+                advice = generate_adaptation_advice(
+                    str(row.get("Purpose", "")),
+                    str(best_essay.get("prompt", "")),
+                    str(best_essay.get("response", ""))
+                )
+
+            results.append({
+                "scholarship_url": row.get("url", ""),
+                "scholarship_purpose": row.get("Purpose", ""),
+                "match_score": round(score, 3),
+                "best_essay_prompt": best_essay.get("prompt", ""),
+                "best_essay_response": best_essay.get("response", ""),
+                "adaptation_advice": advice
+            })
+
+        return jsonify(results)
+
+    except Exception as e:
+        print("MATCH ERROR:", repr(e))
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
