@@ -255,20 +255,21 @@ def match():
     top_indices = np.argsort(scores_array)[::-1][:50]
 
     results = []
-    for idx in top_indices:
-        score = float(scores_array[idx])
+    advice_limit = 5
+
+    for idx, score in top_50:
         row = scholarship_df.iloc[idx]
-        scholarship_text = f"{row.get('Purpose', '')} {row.get('Criteria', '')}".strip()
+        scholarship_text = f"{row['Purpose']} {row['Criteria']}"
 
         matched_essay_indices = match_prompt(scholarship_text, tree)
         if not matched_essay_indices:
             continue
 
+        scholarship_emb = scholarship_embeddings[idx]
+
         valid_matches = [i for i in matched_essay_indices if i in essay_embeddings]
         if not valid_matches:
             continue
-
-        scholarship_emb = scholarship_embeddings[idx]
 
         best_essay_idx = max(
             valid_matches,
@@ -276,16 +277,19 @@ def match():
         )
 
         best_essay = user_essays[best_essay_idx]
-        advice = generate_adaptation_advice(
-            str(row.get("Purpose", "")),
-            str(best_essay.get("prompt", "")),
-            str(best_essay.get("response", ""))
-        )
+
+        advice = ""
+        if len(results) < advice_limit:
+            advice = generate_adaptation_advice(
+                str(row.get("Purpose", "")),
+                str(best_essay.get("prompt", "")),
+                str(best_essay.get("response", ""))
+            )
 
         results.append({
             "scholarship_url": row.get("url", ""),
             "scholarship_purpose": row.get("Purpose", ""),
-            "match_score": round(score, 3),
+            "match_score": round(float(score), 3),
             "best_essay_prompt": best_essay.get("prompt", ""),
             "best_essay_response": best_essay.get("response", ""),
             "adaptation_advice": advice
