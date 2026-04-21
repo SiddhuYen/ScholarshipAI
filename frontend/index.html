@@ -564,7 +564,6 @@
         <li class="loading-step" id="step-match">Matching scholarships</li>
         <li class="loading-step" id="step-advice">Generating adaptation advice</li>
       </ul>
-      <div class="error-msg" id="loading-error"></div>
     </div>
   </div>
 
@@ -661,7 +660,10 @@ document.getElementById('profile-next').addEventListener('click', () => {
   showScreen('screen-upload');
 });
 
-document.getElementById('upload-back').addEventListener('click', () => showScreen('screen-profile'));
+document.getElementById('upload-back').addEventListener('click', () => {
+  hideError(document.getElementById('upload-error'));
+  showScreen('screen-profile');
+});
 
 const uploadZone = document.getElementById('upload-zone');
 const fileInput = document.getElementById('file-input');
@@ -736,6 +738,7 @@ function parseCSV(text) {
 }
 
 document.getElementById('upload-next').addEventListener('click', async () => {
+  hideError(document.getElementById('upload-error'));
   showScreen('screen-loading');
   await runPipeline();
 });
@@ -747,8 +750,8 @@ async function runPipeline() {
     advice: document.getElementById('step-advice'),
   };
 
-  const loadingError = document.getElementById('loading-error');
-  hideError(loadingError);
+  const uploadError = document.getElementById('upload-error');
+  hideError(uploadError);
 
   steps.embed.classList.add('active');
 
@@ -778,6 +781,7 @@ async function runPipeline() {
     if (!response.ok) {
       const text = await response.text();
       console.error('SERVER ERROR:', text);
+
       let message = `Server error (${response.status}).`;
       try {
         const parsed = JSON.parse(text);
@@ -785,8 +789,10 @@ async function runPipeline() {
       } catch (_) {
         if (text) message = text;
       }
-      showError(loadingError, message);
+
+      timers.forEach(clearTimeout);
       showScreen('screen-upload');
+      showError(uploadError, message);
       return;
     }
 
@@ -805,8 +811,8 @@ async function runPipeline() {
   } catch (err) {
     timers.forEach(clearTimeout);
     console.error(err);
-    showError(loadingError, 'Request failed. Check console for details.');
     showScreen('screen-upload');
+    showError(uploadError, 'Request failed. Check console for details.');
   }
 }
 
@@ -878,7 +884,6 @@ document.getElementById('start-over').addEventListener('click', () => {
   document.getElementById('results-list').innerHTML = '';
   fileInput.value = '';
   hideError(document.getElementById('upload-error'));
-  hideError(document.getElementById('loading-error'));
   showScreen('screen-profile');
 });
 </script>
