@@ -36,6 +36,19 @@ def word_count(text):
     return len(str(text).split())
 
 
+def clean_json_value(value):
+    if value is None:
+        return ""
+    if isinstance(value, float) and np.isnan(value):
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except Exception:
+        pass
+    return value
+
+
 def download_from_r2_if_needed():
     remote_to_local = {
         "scholarships_parsed.csv": SCHOLARSHIP_CSV,
@@ -312,18 +325,18 @@ def match():
             advice = ""
             if len(results) < ADVICE_LIMIT:
                 advice = generate_adaptation_advice(
-                    str(row.get("Purpose", "")),
-                    str(best_essay.get("prompt", "")),
-                    str(best_essay.get("response", ""))
+                    str(clean_json_value(row.get("Purpose", ""))),
+                    str(clean_json_value(best_essay.get("prompt", ""))),
+                    str(clean_json_value(best_essay.get("response", "")))
                 )
 
             results.append({
-                "scholarship_url": row.get("url", ""),
-                "scholarship_purpose": row.get("Purpose", ""),
-                "match_score": round(score, 3),
-                "best_essay_prompt": best_essay.get("prompt", ""),
-                "best_essay_response": best_essay.get("response", ""),
-                "adaptation_advice": advice
+                "scholarship_url": clean_json_value(row.get("url", "")),
+                "scholarship_purpose": clean_json_value(row.get("Purpose", "")),
+                "match_score": round(float(score), 3),
+                "best_essay_prompt": clean_json_value(best_essay.get("prompt", "")),
+                "best_essay_response": clean_json_value(best_essay.get("response", "")),
+                "adaptation_advice": clean_json_value(advice)
             })
 
         return jsonify(results)
