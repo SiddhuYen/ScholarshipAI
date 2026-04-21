@@ -255,41 +255,49 @@ def match():
     top_indices = np.argsort(scores_array)[::-1][:50]
 
     results = []
-    for idx in top_indices:
-        score = float(scores_array[idx])
-        row = scholarship_df.iloc[idx]
-        scholarship_text = f"{row.get('Purpose', '')} {row.get('Criteria', '')}".strip()
+advice_limit = 5
 
-        matched_essay_indices = match_prompt(scholarship_text, tree)
-        if not matched_essay_indices:
-            continue
+for idx in top_indices:
+    score = float(scores_array[idx])
+    row = scholarship_df.iloc[idx]
+    scholarship_text = f"{row.get('Purpose', '')} {row.get('Criteria', '')}".strip()
 
-        valid_matches = [i for i in matched_essay_indices if i in essay_embeddings]
-        if not valid_matches:
-            continue
+    matched_essay_indices = match_prompt(scholarship_text, tree)
+    if not matched_essay_indices:
+        continue
 
-        scholarship_emb = scholarship_embeddings[idx]
+    valid_matches = [i for i in matched_essay_indices if i in essay_embeddings]
+    if not valid_matches:
+        continue
 
-        best_essay_idx = max(
-            valid_matches,
-            key=lambda i: float(np.dot(essay_embeddings[i], scholarship_emb))
-        )
+    scholarship_emb = scholarship_embeddings[idx]
 
-        best_essay = user_essays[best_essay_idx]
+    best_essay_idx = max(
+        valid_matches,
+        key=lambda i: float(np.dot(essay_embeddings[i], scholarship_emb))
+    )
+
+    if best_essay_idx >= len(user_essays):
+        continue
+
+    best_essay = user_essays[best_essay_idx]
+
+    advice = ""
+    if len(results) < advice_limit:
         advice = generate_adaptation_advice(
             str(row.get("Purpose", "")),
             str(best_essay.get("prompt", "")),
             str(best_essay.get("response", ""))
         )
 
-        results.append({
-            "scholarship_url": row.get("url", ""),
-            "scholarship_purpose": row.get("Purpose", ""),
-            "match_score": round(score, 3),
-            "best_essay_prompt": best_essay.get("prompt", ""),
-            "best_essay_response": best_essay.get("response", ""),
-            "adaptation_advice": advice
-        })
+    results.append({
+        "scholarship_url": row.get("url", ""),
+        "scholarship_purpose": row.get("Purpose", ""),
+        "match_score": round(score, 3),
+        "best_essay_prompt": best_essay.get("prompt", ""),
+        "best_essay_response": best_essay.get("response", ""),
+        "adaptation_advice": advice
+    })
 
     return jsonify(results)
 
