@@ -7,6 +7,7 @@ import numpy as np
 import json
 import os
 import boto3
+import re
 
 load_dotenv()
 
@@ -36,6 +37,25 @@ def word_count(text):
     return len(str(text).split())
 
 
+def split_prompt_response(text):
+    text = str(text).strip()
+
+    q_index = text.find("?")
+    if 20 <= q_index <= 600:
+        return text[:q_index + 1].strip(), text[q_index + 1:].strip()
+
+    match = re.search(
+        r"\([^)]*(word|words|character|characters)[^)]*\)",
+        text,
+        re.IGNORECASE
+    )
+
+    if match and match.end() <= 700:
+        return text[:match.end()].strip(), text[match.end():].strip()
+
+    return text[:300].strip(), text.strip()
+
+
 def clean_json_value(value):
     if value is None:
         return ""
@@ -55,7 +75,11 @@ def download_from_r2_if_needed():
         "scholarship_embeddings.npy": SCHOLARSHIP_EMB_NPY,
     }
 
-    missing = [local for local in remote_to_local.values() if not file_exists_and_nonempty(local)]
+    missing = [
+        local for local in remote_to_local.values()
+        if not file_exists_and_nonempty(local)
+    ]
+
     if not missing:
         return
 
@@ -90,6 +114,7 @@ def download_from_r2_if_needed():
 def ensure_required_local_files():
     required = [SCHOLARSHIP_CSV, SCHOLARSHIP_EMB_NPY, ESSAY_CSV, ESSAY_TREE]
     missing = [path for path in required if not file_exists_and_nonempty(path)]
+
     if missing:
         raise FileNotFoundError(f"Missing required files: {missing}")
 
@@ -102,8 +127,10 @@ def normalize_rows(matrix):
 
 def normalize_vector(vec):
     norm = np.linalg.norm(vec)
+
     if norm == 0:
         return vec
+
     return vec / norm
 
 
@@ -134,15 +161,18 @@ def embed(text):
         model="text-embedding-3-small",
         input=[str(text)[:8000]]
     )
+
     return np.array(response.data[0].embedding, dtype=np.float32)
 
 
 def embed_batch(texts):
     cleaned = [str(text)[:8000] for text in texts]
+
     response = client.embeddings.create(
         model="text-embedding-3-small",
         input=cleaned
     )
+
     return [
         np.array(item.embedding, dtype=np.float32)
         for item in response.data
@@ -167,11 +197,16 @@ def match_prompt(prompt, node):
         return node["essays"]
 
     options = ""
+
     for i, child in enumerate(node["children"]):
         sample_indices = child["essays"][:2]
-        samples = " | ".join(
-            [str(essay_df.loc[j, "Prompt"])[:100] for j in sample_indices if j < len(essay_df)]
-        )
+
+        samples = " | ".join([
+            str(essay_df.loc[j, "Prompt"])[:100]
+            for j in sample_indices
+            if j < len(essay_df)
+        ])
+
         options += f"{i}: {child['name']} (e.g. {samples})\n\n"
 
     response = client.chat.completions.create(
@@ -180,14 +215,18 @@ def match_prompt(prompt, node):
         messages=[
             {
                 "role": "system",
-                "content": """You are a precise classifier. Return only a JSON object with a single key 'choice'.
+                "content": """
+You are a precise classifier. Return only a JSON object with a single key 'choice'.
 Always pick the closest matching cluster even if the match isn't perfect.
 Only return -1 if the prompt is completely unrelated to all clusters.
-When in doubt, pick the closest cluster."""
+When in doubt, pick the closest cluster.
+"""
             },
             {
                 "role": "user",
-                "content": f"""A student is applying for a scholarship with this prompt:
+                "content": f"""
+A student is applying for a scholarship with this prompt:
+
 "{prompt}"
 
 Which cluster contains essays that would BEST answer this prompt?
@@ -196,13 +235,16 @@ Pick the most specific match, not the most general one.
 Clusters:
 {options}
 
-Return only: {{"choice": <number or -1>}}"""
+Return only:
+{{"choice": <number or -1>}}
+"""
             }
         ]
     )
 
     raw = response.choices[0].message.content.strip()
     raw = raw.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+
     result = json.loads(raw)
     choice = result["choice"]
 
@@ -219,17 +261,28 @@ def generate_adaptation_advice(scholarship_purpose, essay_prompt, essay_response
     response = client.chat.completions.create(
         model="gpt-4o",
         max_tokens=300,
-        messages=[{
-            "role": "user",
-            "content": f"""A student is adapting their existing essay for a scholarship.
+        messages=[
+            {
+                "role": "user",
+                "content": f"""
+A student is adapting their existing essay for a scholarship.
 
-Scholarship purpose: {scholarship_purpose}
-Their existing essay prompt: {essay_prompt}
-Their existing essay (first 500 chars): {essay_response[:500]}
+Scholarship purpose:
+{scholarship_purpose}
 
-In 3 bullet points, tell them specifically what to change to make this essay fit the scholarship. Be concrete, not generic."""
-        }]
+Their existing essay prompt:
+{essay_prompt}
+
+Their existing essay, first 500 chars:
+{essay_response[:500]}
+
+In 3 bullet points, tell them specifically what to change to make this essay fit the scholarship.
+Be concrete, not generic.
+"""
+            }
+        ]
     )
+
     return response.choices[0].message.content
 
 
@@ -252,12 +305,29 @@ def match():
         user_essays = data.get("essays", [])
 
         if not isinstance(user_essays, list) or len(user_essays) == 0:
-            return jsonify({"error": "Request must include a non-empty 'essays' list."}), 400
+            return jsonify({
+                "error": "Request must include a non-empty 'essays' list."
+            }), 400
 
         filtered_essays = []
+
         for essay in user_essays:
             prompt = str(essay.get("prompt", "")).strip()
             response_text = str(essay.get("response", "")).strip()
+
+            if not response_text:
+                full_text = str(
+                    essay.get("text")
+                    or essay.get("content")
+                    or essay.get("document")
+                    or ""
+                ).strip()
+
+                if full_text:
+                    prompt, response_text = split_prompt_response(full_text)
+
+            if not prompt and response_text:
+                prompt = response_text[:300].strip()
 
             if prompt and response_text and word_count(response_text) >= MIN_ESSAY_WORDS:
                 filtered_essays.append({
@@ -273,6 +343,7 @@ def match():
         user_essays = filtered_essays
 
         essay_texts = []
+
         for essay in user_essays:
             prompt = essay["prompt"]
             response_text = essay["response"]
@@ -314,7 +385,8 @@ def match():
             best_essay_idx = max(
                 essay_embeddings.keys(),
                 key=lambda i: float(np.dot(essay_embeddings[i], scholarship_emb))
-                if len(essay_embeddings[i]) == len(scholarship_emb) else -1
+                if len(essay_embeddings[i]) == len(scholarship_emb)
+                else -1
             )
 
             if best_essay_idx >= len(user_essays):
@@ -323,6 +395,7 @@ def match():
             best_essay = user_essays[best_essay_idx]
 
             advice = ""
+
             if len(results) < ADVICE_LIMIT:
                 advice = generate_adaptation_advice(
                     str(clean_json_value(row.get("Purpose", ""))),
